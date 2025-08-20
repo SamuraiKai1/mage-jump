@@ -1,173 +1,623 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mage Jump</title>
-    <style>
-        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #222; }
-        canvas { max-width: 100%; max-height: 100%; }
-    </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Mage Jump</title>
+<style>
+  :root {
+    --bg: #0b0e1a;
+    --ink: #e1e7ff;
+    --accent: #e63946;
+    --gold: #ffc300;
+    --platform: #6c7a89;
+    --platformFragile: #9aa6b2;
+    --rune: #74c69d;
+    --enemy: #8338ec;
+    --button: rgba(255,255,255,0.08);
+    --buttonActive: rgba(255,255,255,0.18);
+  }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    height: 100%; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  #game {
+    display: block; width: 100vw; height: 100vh;
+    touch-action: none; /* we'll manage touch to avoid scrolling */
+  }
+  .hud {
+    position: fixed; top: 8px; left: 8px; right: 8px; display: flex; justify-content: space-between; pointer-events: none;
+    font-weight: 600; text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  }
+  .panel {
+    position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.35); backdrop-filter: blur(2px);
+    visibility: hidden; opacity: 0; transition: opacity .25s ease;
+  }
+  .panel.show { visibility: visible; opacity: 1; }
+  .card {
+    background: rgba(12,14,28,0.9); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 18px 20px; max-width: 520px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  }
+  .card h1 { margin: 0 0 6px 0; font-size: 22px; }
+  .card p { margin: 6px 0; line-height: 1.4; }
+  .btn {
+    display: inline-block; padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); color: var(--ink);
+    background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)); cursor: pointer; user-select: none;
+  }
+  .controls {
+    position: fixed; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; gap: 12px;
+    pointer-events: auto;
+  }
+  .touchkey {
+    width: 26vw; max-width: 200px; height: 64px; border-radius: 16px;
+    background: var(--button); border: 1px solid rgba(255,255,255,0.12);
+    display: grid; place-items: center; color: var(--ink); font-weight: 700; font-size: 18px;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  .touchkey.active { background: var(--buttonActive); }
+  @media (min-width: 900px) {
+    .controls { display: none; }
+  }
+</style>
 </head>
 <body>
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
-    <script>
-        const config = {
-            type: Phaser.AUTO,
-            width: 400,
-            height: 600,
-            physics: {
-                default: 'arcade',
-                arcade: { gravity: { y: 300 }, debug: false }
-            },
-            scene: { preload, create, update },
-            scale: {
-                mode: Phaser.Scale.FIT,
-                autoCenter: Phaser.Scale.CENTER_BOTH
-            }
-        };
+<canvas id="game"></canvas>
+<div class="hud">
+  <div id="score">Score: 0</div>
+  <div id="level">Level: 1</div>
+  <div id="best">Best: 0</div>
+</div>
 
-        const game = new Phaser.Game(config);
-        let player, platforms, boosts, monsters, cursors, score = 0, scoreText, cameraY = 0, breakableLevel = 5000;
+<div id="panel" class="panel show">
+  <div class="card">
+    <h1>Mage Jump</h1>
+    <p>You’re a little mage with a red mantle. Bounce up the arcane platforms, dodge sideways phantoms, and chase the sky.</p>
+    <p><b>Keyboard:</b> Left/Right arrows or A/D. Wrap-around edges. Land on platforms to bounce. Grab glowing boosts.</p>
+    <p><b>Mobile:</b> Use on-screen arrows below.</p>
+    <p><b>Higher levels:</b> Platforms crack and break after one touch. Watch your step.</p>
+    <div style="margin-top:10px; display:flex; gap:10px; justify-content:flex-end;">
+      <div class="btn" id="start">Start</div>
+    </div>
+  </div>
+</div>
 
-        function preload() {
-            // Placeholder graphics (replace with sprites for production)
-            this.load.image('platform', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAeCAYAAADRu+EBAAAAAXNSR0IArs4c6AAAAYElEQVR4nO3WsQkAMAwDwV5/0b3/QI5gQgyiCCHiIu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7uwH+5gE7V6e7owAAAABJRU5ErkJggg==');
-            this.load.image('boost', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAAXNSR0IArs4c6AAAARElEQVR4nO3TsQkAMAwDwZ5/0b3/QI5gQgyiCCHiIu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7gH+5gE7V6e7owAAAABJRU5ErkJggg==');
-            this.load.image('monster', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6AAAAVElEQVR4nO3WsQkAMAwDwZ5/0b3/QI5gQgyiCCHiIu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7gH+5gE7V6e7owAAAABJRU5ErkJggg==');
+<div class="controls" id="touchControls">
+  <div class="touchkey" id="leftBtn">◀</div>
+  <div class="touchkey" id="rightBtn">▶</div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const levelEl = document.getElementById('level');
+  const bestEl = document.getElementById('best');
+  const panel = document.getElementById('panel');
+  const startBtn = document.getElementById('start');
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+
+  // DPR-aware sizing
+  let W = 0, H = 0, DPR = 1;
+  const resize = () => {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  };
+  window.addEventListener('resize', resize, { passive: true });
+  resize();
+
+  // Input
+  const keys = { left: false, right: false };
+  const setKey = (k, v) => { keys[k] = v; };
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowLeft','ArrowRight','Space','KeyA','KeyD'].includes(e.code)) e.preventDefault();
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') setKey('left', true);
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') setKey('right', true);
+    if (e.code === 'Space' && game.over) restart();
+  }, { passive: false });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') setKey('left', false);
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') setKey('right', false);
+  });
+
+  // Touch controls
+  const bindTouch = (el, key) => {
+    const on = () => { el.classList.add('active'); setKey(key, true); };
+    const off = () => { el.classList.remove('active'); setKey(key, false); };
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); on(); }, { passive: false });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); off(); }, { passive: false });
+    el.addEventListener('touchcancel', (e) => { e.preventDefault(); off(); }, { passive: false });
+    el.addEventListener('mousedown', on);
+    el.addEventListener('mouseup', off);
+    el.addEventListener('mouseleave', off);
+  };
+  bindTouch(leftBtn, 'left');
+  bindTouch(rightBtn, 'right');
+
+  // Game state
+  const game = {
+    over: true,
+    score: 0,
+    best: Number(localStorage.getItem('magejump_best') || 0),
+    level: 1,
+    camY: 0, // world offset (how far we've scrolled)
+    time: 0
+  };
+  bestEl.textContent = 'Best: ' + game.best;
+
+  // Objects
+  const player = {
+    x: W/2, y: H*0.7, w: 36, h: 38,
+    vx: 0, vy: -12,
+    moveSpeed: 0.28,
+    maxSpeed: 4.0,
+    gravity: 0.38,
+    bounce: 11.5,
+    jetpackTime: 0,
+    slowFallTime: 0
+  };
+
+  const platforms = [];
+  const enemies = [];
+  const boosts = [];
+
+  // Helpers
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const irand = (a, b) => Math.floor(rand(a, b+1));
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // Generation parameters (will scale with level)
+  let platGapMin = 55, platGapMax = 95;
+  let movingPlatChance = 0.12;
+  let fragilePlatChance = 0.14;
+  let enemyChance = 0.08;
+  let boostChance = 0.1;
+
+  function difficultyUpdate() {
+    // Levels roughly every 450 score
+    game.level = Math.max(1, Math.floor(game.score / 450) + 1);
+    // Gradually increase challenge
+    const t = Math.min(1, (game.level - 1) / 8); // up to level ~9
+    platGapMin = 60 + 20 * t;
+    platGapMax = 100 + 70 * t;
+    movingPlatChance = 0.12 + 0.18 * t;
+    fragilePlatChance = (game.level >= 5) ? 1.0 : (0.14 + 0.6 * t); // at high levels, most platforms are fragile
+    enemyChance = 0.08 + 0.12 * t;
+    boostChance = 0.1 - 0.05 * t;
+
+    levelEl.textContent = 'Level: ' + game.level;
+  }
+
+  function initWorld() {
+    platforms.length = 0;
+    enemies.length = 0;
+    boosts.length = 0;
+
+    // Base floor (off-screen) to start bounce if needed
+    let y = H - 20;
+    for (let i = 0; i < 16; i++) {
+      const pw = irand(60, 110);
+      const px = irand(10, W - pw - 10);
+      platforms.push(makePlatform(px, y, pw));
+      y -= irand(65, 100);
+    }
+    // Ensure a couple of safe early platforms
+    platforms.slice(0, 3).forEach(p => p.type = 'solid');
+  }
+
+  function makePlatform(x, y, w) {
+    const typeRoll = Math.random();
+    let type = 'solid';
+    if (typeRoll < fragilePlatChance) type = 'fragile';
+    else if (typeRoll < fragilePlatChance + movingPlatChance) type = 'moving';
+
+    const p = {
+      x, y, w, h: 12, type,
+      dx: (type === 'moving') ? (Math.random() < 0.5 ? 0.6 : -0.6) : 0,
+      broken: false,
+      hitOnce: false
+    };
+    // Occasionally attach a boost on solid/moving platforms
+    if (Math.random() < boostChance && type !== 'fragile') {
+      const bType = Math.random() < 0.5 ? 'spring' : 'jetpack';
+      boosts.push(makeBoost(p.x + p.w/2, p.y - 14, bType));
+    }
+    // Occasionally place a horizontal enemy in this band
+    if (Math.random() < enemyChance) {
+      enemies.push(makeEnemy(irand(0, W-60), p.y - irand(80, 180)));
+    }
+    return p;
+  }
+
+  function makeEnemy(x, y) {
+    return {
+      x, y, w: irand(50, 110), h: 22,
+      vx: (Math.random() < 0.5 ? 0.8 : -0.8) * (1 + 0.15 * (game.level-1)),
+    };
+  }
+
+  function makeBoost(x, y, type) {
+    return {
+      x, y, r: 10, type, t: 0
+    };
+  }
+
+  function restart() {
+    game.over = false;
+    game.score = 0;
+    game.camY = 0;
+    game.time = 0;
+
+    player.x = W/2; player.y = H*0.7;
+    player.vx = 0; player.vy = -12;
+    player.jetpackTime = 0; player.slowFallTime = 0;
+
+    difficultyUpdate();
+    initWorld();
+
+    panel.classList.remove('show');
+    loopLast = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  startBtn.addEventListener('click', () => {
+    if (game.over) restart();
+  });
+
+  // Core loop
+  let loopLast = performance.now();
+  function loop(now) {
+    if (game.over) return;
+    const dt = clamp((now - loopLast) / 16.6667, 0.5, 2.0); // normalize to 60fps step
+    loopLast = now;
+    game.time += dt;
+
+    step(dt);
+    draw();
+
+    requestAnimationFrame(loop);
+  }
+
+  function step(dt) {
+    // Difficulty update
+    difficultyUpdate();
+
+    // Left/right input
+    const accel = player.moveSpeed * dt;
+    if (keys.left) player.vx -= accel;
+    if (keys.right) player.vx += accel;
+    player.vx = clamp(player.vx, -player.maxSpeed, player.maxSpeed);
+
+    // Friction
+    player.vx *= 0.985;
+
+    // Gravity or jetpack
+    let g = player.gravity;
+    if (player.slowFallTime > 0) g *= 0.35;
+    if (player.jetpackTime > 0) {
+      player.vy = -12.5; // forced upward
+      player.jetpackTime -= dt * 16.67;
+    } else {
+      player.vy += g * dt * 1.0;
+    }
+
+    // Move player
+    player.x += player.vx * dt * 3.2;
+    player.y += player.vy * dt * 3.2;
+
+    // Wrap-around
+    if (player.x < -player.w) player.x = W;
+    if (player.x > W) player.x = -player.w;
+
+    // Camera follows upward: keep player around 40% screen height
+    const camTarget = Math.min(game.camY, player.y - H*0.4);
+    const camDelta = camTarget - game.camY;
+    game.camY += camDelta * 0.12;
+
+    // Platforms update and collisions
+    for (const p of platforms) {
+      if (p.type === 'moving') {
+        p.x += p.dx * dt * 2.0;
+        if (p.x < 0) { p.x = 0; p.dx *= -1; }
+        if (p.x + p.w > W) { p.x = W - p.w; p.dx *= -1; }
+      }
+      // Collision: only when falling
+      const prevY = player.y - player.vy * dt * 3.2;
+      const onewayCheck = (player.vy > 0) && (prevY + player.h <= p.y) && (player.y + player.h >= p.y);
+      const overlapX = (player.x + player.w > p.x) && (player.x < p.x + p.w);
+      if (onewayCheck && overlapX && !p.broken) {
+        // Bounce
+        let bounce = player.bounce;
+        if (player.slowFallTime > 0) bounce *= 1.08;
+        player.vy = -bounce;
+
+        if (p.type === 'fragile') {
+          p.broken = true; p.hitOnce = true;
+        } else if (p.type === 'moving') {
+          // slight carry
+          player.x += p.dx * 3;
         }
+      }
+    }
 
-        function create() {
-            // Score display
-            scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '20px', fill: '#fff' }).setScrollFactor(0);
+    // Remove broken platforms after they scroll below
+    for (let i = platforms.length - 1; i >= 0; i--) {
+      const p = platforms[i];
+      if (p.broken && Math.random() < 0.03) platforms.splice(i, 1);
+    }
 
-            // Platforms group
-            platforms = this.physics.add.staticGroup();
-            for (let i = 0; i < 10; i++) {
-                createPlatform(this, Phaser.Math.Between(50, 350), i * 80);
-            }
+    // Enemies update and collisions
+    for (const e of enemies) {
+      e.x += e.vx * dt * 2.2;
+      if (e.x < 0 || e.x + e.w > W) e.vx *= -1;
+      // Collision with player (AABB)
+      if (rectOverlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h)) {
+        gameOver();
+        return;
+      }
+    }
 
-            // Player (mage)
-            player = this.physics.add.sprite(200, 500, null).setDisplaySize(30, 40);
-            player.setBounce(0.2).setCollideWorldBounds(false);
-            drawMage(this, player);
-            this.physics.add.collider(player, platforms, platformCollision, null, this);
-
-            // Boosts group
-            boosts = this.physics.add.group();
-            this.physics.add.overlap(player, boosts, collectBoost, null, this);
-
-            // Monsters group
-            monsters = this.physics.add.group();
-            this.physics.add.collider(player, monsters, hitMonster, null, this);
-
-            // Input
-            cursors = this.input.keyboard.createCursorKeys();
-            this.input.addPointer(2); // For mobile touch
-
-            // Camera follows player
-            this.cameras.main.startFollow(player);
-            this.cameras.main.setBounds(0, 0, 400, 100000);
-
-            // Spawn boosts and monsters
-            this.time.addEvent({ delay: 5000, callback: spawnBoost, callbackScope: this, loop: true });
-            this.time.addEvent({ delay: 7000, callback: spawnMonster, callbackScope: this, loop: true });
+    // Boosts update and pickup
+    for (let i = boosts.length - 1; i >= 0; i--) {
+      const b = boosts[i];
+      b.t += dt;
+      if (circleRectOverlap(b.x, b.y, b.r, player.x, player.y, player.w, player.h)) {
+        if (b.type === 'spring') {
+          player.vy = -16.5; // extra bounce
+        } else if (b.type === 'jetpack') {
+          player.jetpackTime = 1000; // ms-like units matched to dt scaling
         }
+        boosts.splice(i, 1);
+      }
+    }
 
-        function update() {
-            // Player movement
-            if (cursors.left.isDown || (this.input.pointer1.isDown && this.input.pointer1.x < config.width / 2)) {
-                player.setVelocityX(-200);
-            } else if (cursors.right.isDown || (this.input.pointer1.isDown && this.input.pointer1.x > config.width / 2)) {
-                player.setVelocityX(200);
-            } else {
-                player.setVelocityX(0);
-            }
+    // Score: highest altitude achieved (negative y relative to cam)
+    const current = Math.max(0, Math.floor((game.camY) * -1 + (H*0.6)));
+    if (current > game.score) game.score = current;
+    scoreEl.textContent = 'Score: ' + game.score;
 
-            // Screen wrapping
-            if (player.x < 0) player.x += config.width;
-            if (player.x > config.width) player.x -= config.width;
+    // Generate new platforms above view
+    const topY = Math.min(...platforms.map(p => p.y));
+    while (topY - game.camY > -H) {
+      // Find newY above the current top
+      let highest = Math.min(...platforms.map(p => p.y));
+      const gap = irand(platGapMin, platGapMax);
+      const newY = highest - gap;
+      const pw = irand(55, 110);
+      const px = irand(8, Math.max(8, W - pw - 8));
+      platforms.push(makePlatform(px, newY, pw));
+      // Also occasionally place an enemy band
+      if (Math.random() < enemyChance * 0.6) enemies.push(makeEnemy(irand(0, W-70), newY - irand(120, 220)));
+    }
 
-            // Update camera and platforms
-            if (player.y < cameraY - 100) {
-                cameraY = player.y;
-                updatePlatforms(this);
-            }
+    // Cull objects below screen
+    const cullY = game.camY + H + 80;
+    prune(platforms, p => p.y < cullY);
+    prune(enemies, e => e.y < cullY);
+    prune(boosts, b => b.y < cullY);
 
-            // Game over if player falls below screen
-            if (player.y > this.cameras.main.scrollY + config.height + 50) {
-                this.scene.restart();
-                score = 0;
-            }
+    // Death: fell below view
+    if (player.y - game.camY > H + 60) {
+      gameOver();
+      return;
+    }
 
-            // Update monsters
-            monsters.getChildren().forEach(monster => {
-                if (monster.x < 0 || monster.x > config.width) {
-                    monster.setVelocityX(-monster.body.velocity.x);
-                }
-            });
+    // Tick down slow fall if ever used (not currently granted by an item, reserved for future)
+    if (player.slowFallTime > 0) player.slowFallTime -= dt * 16.67;
+  }
+
+  function prune(arr, pred) {
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (!pred(arr[i])) arr.splice(i, 1);
+    }
+  }
+
+  function rectOverlap(x,y,w,h, X,Y,Wd,Hd) {
+    return !(x+w < X || X+Wd < x || y+h < Y || Y+Hd < y);
+  }
+  function circleRectOverlap(cx, cy, r, rx, ry, rw, rh) {
+    const nx = clamp(cx, rx, rx+rw);
+    const ny = clamp(cy, ry, ry+rh);
+    const dx = cx - nx, dy = cy - ny;
+    return dx*dx + dy*dy <= r*r;
+  }
+
+  function draw() {
+    // Clear
+    ctx.fillStyle = '#070a14';
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars background
+    drawStars();
+
+    // Translate by camera
+    ctx.save();
+    ctx.translate(0, -game.camY);
+
+    // Platforms
+    for (const p of platforms) drawPlatform(p);
+
+    // Boosts
+    for (const b of boosts) drawBoost(b);
+
+    // Enemies
+    for (const e of enemies) drawEnemy(e);
+
+    // Player
+    drawMage(player);
+
+    ctx.restore();
+  }
+
+  function drawStars() {
+    const tw = 32, th = 32;
+    for (let y = 0; y < H; y += th) {
+      for (let x = 0; x < W; x += tw) {
+        const seed = (x * 73856093 ^ y * 19349663 ^ Math.floor(game.time*3) * 83492791) >>> 0;
+        const v = (seed % 1000) / 1000;
+        if (v < 0.05) {
+          ctx.fillStyle = 'rgba(255,255,255,0.15)';
+          ctx.fillRect(x, y, 2, 2);
         }
+      }
+    }
+  }
 
-        function drawMage(scene, sprite) {
-            const graphics = scene.add.graphics();
-            graphics.fillStyle(0x000000, 1);
-            graphics.fillRect(sprite.x - 15, sprite.y - 20, 30, 40); // Black body
-            graphics.fillStyle(0xff0000, 1);
-            graphics.fillRect(sprite.x - 15, sprite.y - 20, 30, 10); // Red mantle
-            graphics.fillStyle(0xffff00, 1);
-            graphics.fillCircle(sprite.x - 5, sprite.y - 10, 3); // Left eye
-            graphics.fillCircle(sprite.x + 5, sprite.y - 10, 3); // Right eye
-            sprite.setData('graphics', graphics);
-        }
+  function drawPlatform(p) {
+    ctx.save();
+    const y = p.y;
+    // Base
+    ctx.fillStyle = (p.type === 'fragile') ? getStripeFill('#9aa6b2','#b6c0c8', 6) : getStripeFill('#6c7a89','#8896a4', 6);
+    roundRect(ctx, p.x, y, p.w, p.h, 4, true, false);
+    // Runes accent for solid/moving
+    if (p.type !== 'fragile') {
+      ctx.strokeStyle = '#74c69d';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(p.x + 6, y + p.h/2);
+      ctx.lineTo(p.x + p.w - 6, y + p.h/2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // cracks
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(p.x + p.w*0.2, y + 2); ctx.lineTo(p.x + p.w*0.35, y + p.h - 2);
+      ctx.moveTo(p.x + p.w*0.55, y + 2); ctx.lineTo(p.x + p.w*0.8, y + p.h - 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
-        function createPlatform(scene, x, y) {
-            const isBreakable = y < breakableLevel;
-            const platform = platforms.create(x, y, 'platform').setDisplaySize(60, 10);
-            platform.setData('breakable', isBreakable);
-            platform.refreshBody();
-        }
+  function getStripeFill(a,b, gap) {
+    const g = ctx.createLinearGradient(0,0,gap,gap);
+    g.addColorStop(0,a); g.addColorStop(1,b);
+    return g;
+  }
 
-        function platformCollision(player, platform) {
-            if (player.body.touching.down && platform.getData('breakable')) {
-                platform.destroy();
-            }
-        }
+  function drawEnemy(e) {
+    const y = e.y;
+    ctx.save();
+    // Phantom bar
+    const grd = ctx.createLinearGradient(e.x, y, e.x+e.w, y);
+    grd.addColorStop(0, 'rgba(131,56,236,0.15)');
+    grd.addColorStop(0.5, 'rgba(131,56,236,0.75)');
+    grd.addColorStop(1, 'rgba(131,56,236,0.15)');
+    ctx.fillStyle = grd;
+    roundRect(ctx, e.x, y, e.w, e.h, 8, true, false);
+    // Small eyes
+    ctx.fillStyle = '#ffbe0b';
+    ctx.fillRect(e.x + e.w/2 - 10, y + 6, 6, 4);
+    ctx.fillRect(e.x + e.w/2 + 4, y + 6, 6, 4);
+    ctx.restore();
+  }
 
-        function collectBoost(player, boost) {
-            boost.destroy();
-            score += 50;
-            scoreText.setText('Score: ' + score);
-            player.setVelocityY(-500); // Boost jump
-        }
+  function drawBoost(b) {
+    ctx.save();
+    const t = b.t;
+    if (b.type === 'spring') {
+      // Arcane spring rune
+      ctx.translate(b.x, b.y);
+      const pul = 1 + 0.1 * Math.sin(t * 0.25);
+      ctx.scale(pul, pul);
+      ctx.beginPath();
+      ctx.arc(0, 0, b.r, 0, Math.PI*2);
+      ctx.fillStyle = '#74c69d';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-6, -2); ctx.lineTo(0, 6); ctx.lineTo(6, -2);
+      ctx.stroke();
+    } else {
+      // Phoenix feather (jetpack)
+      ctx.translate(b.x, b.y);
+      ctx.rotate(Math.sin(t*0.15) * 0.2);
+      ctx.fillStyle = '#e63946';
+      ctx.beginPath();
+      ctx.moveTo(-2, 8); ctx.quadraticCurveTo(-10, -2, 0, -b.r-6); ctx.quadraticCurveTo(10, -2, 2, 8); ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -b.r-6); ctx.lineTo(0, 8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
-        function hitMonster(player, monster) {
-            this.scene.restart();
-            score = 0;
-        }
+  function drawMage(p) {
+    const x = p.x, y = p.y;
+    ctx.save();
+    // Shadow
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(x + p.w/2, y + p.h + 16, 12, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
 
-        function spawnBoost() {
-            const x = Phaser.Math.Between(50, 350);
-            const y = cameraY - 600;
-            const boost = boosts.create(x, y, 'boost').setDisplaySize(20, 20);
-            boost.setVelocityY(50);
-        }
+    // Body (black)
+    ctx.fillStyle = '#000000';
+    roundRect(ctx, x + 6, y + 6, p.w - 12, p.h - 10, 6, true, false);
 
-        function spawnMonster() {
-            const x = Phaser.Math.Between(50, 350);
-            const y = cameraY - 600;
-            const monster = monsters.create(x, y, 'monster').setDisplaySize(40, 40);
-            monster.setVelocityX(Phaser.Math.Between(-100, 100));
-            monster.setVelocityY(50);
-        }
+    // Eyes (yellow dots)
+    ctx.fillStyle = '#ffc300';
+    ctx.fillRect(x + p.w/2 - 6, y + 16, 4, 4);
+    ctx.fillRect(x + p.w/2 + 2, y + 16, 4, 4);
 
-        function updatePlatforms(scene) {
-            platforms.getChildren().forEach(platform => {
-                if (platform.y > scene.cameras.main.scrollY + config.height) {
-                    platform.destroy();
-                    createPlatform(scene, Phaser.Math.Between(50, 350), scene.cameras.main.scrollY - 50);
-                }
-            });
-        }
-    </script>
+    // Red mantle (cape + hood)
+    // Hood
+    ctx.fillStyle = '#e63946';
+    roundRect(ctx, x + 2, y, p.w - 4, 16, 8, true, false);
+    // Cape
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y + 12);
+    ctx.quadraticCurveTo(x + p.w/2, y + 26, x + p.w - 4, y + 12);
+    ctx.quadraticCurveTo(x + p.w/2, y + 36, x + 4, y + 12);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+    if (w < 2*r) r = w/2;
+    if (h < 2*r) r = h/2;
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y,   x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x,   y+h, r);
+    ctx.arcTo(x,   y+h, x,   y,   r);
+    ctx.arcTo(x,   y,   x+w, y,   r);
+    ctx.closePath();
+    if (fill) ctx.fill();
+    if (stroke) ctx.stroke();
+  }
+
+  function gameOver() {
+    game.over = true;
+    if (game.score > game.best) {
+      game.best = game.score;
+      localStorage.setItem('magejump_best', String(game.best));
+    }
+    bestEl.textContent = 'Best: ' + game.best;
+    panel.classList.add('show');
+    // Update panel text
+    panel.querySelector('.card h1').textContent = 'Game Over';
+    const ps = panel.querySelectorAll('.card p');
+    if (ps[1]) ps[1].textContent = 'Score: ' + game.score + '   •   Level: ' + game.level;
+    if (ps[2]) ps[2].textContent = 'Press Space or tap Start to try again.';
+  }
+
+  // Kick off: show panel, wait for start
+})();
+</script>
 </body>
 </html>

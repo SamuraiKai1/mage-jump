@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mage Jump</title>
+    <style>
+        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #222; }
+        canvas { max-width: 100%; max-height: 100%; }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: 400,
+            height: 600,
+            physics: {
+                default: 'arcade',
+                arcade: { gravity: { y: 300 }, debug: false }
+            },
+            scene: { preload, create, update },
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            }
+        };
+
+        const game = new Phaser.Game(config);
+        let player, platforms, boosts, monsters, cursors, score = 0, scoreText, cameraY = 0, breakableLevel = 5000;
+
+        function preload() {
+            // Placeholder graphics (replace with sprites for production)
+            this.load.image('platform', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAeCAYAAADRu+EBAAAAAXNSR0IArs4c6AAAAYElEQVR4nO3WsQkAMAwDwV5/0b3/QI5gQgyiCCHiIu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7uwH+5gE7V6e7owAAAABJRU5ErkJggg==');
+            this.load.image('boost', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAAXNSR0IArs4c6AAAARElEQVR4nO3TsQkAMAwDwZ5/0b3/QI5gQgyiCCHiIu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7gH+5gE7V6e7owAAAABJRU5ErkJggg==');
+            this.load.image('monster', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6AAAAVElEQVR4nO3WsQkAMAwDwZ5/0b3/QI5gQgyiCCHiIu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7gH+5gE7V6e7owAAAABJRU5ErkJggg==');
+        }
+
+        function create() {
+            // Score display
+            scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '20px', fill: '#fff' }).setScrollFactor(0);
+
+            // Platforms group
+            platforms = this.physics.add.staticGroup();
+            for (let i = 0; i < 10; i++) {
+                createPlatform(this, Phaser.Math.Between(50, 350), i * 80);
+            }
+
+            // Player (mage)
+            player = this.physics.add.sprite(200, 500, null).setDisplaySize(30, 40);
+            player.setBounce(0.2).setCollideWorldBounds(false);
+            drawMage(this, player);
+            this.physics.add.collider(player, platforms, platformCollision, null, this);
+
+            // Boosts group
+            boosts = this.physics.add.group();
+            this.physics.add.overlap(player, boosts, collectBoost, null, this);
+
+            // Monsters group
+            monsters = this.physics.add.group();
+            this.physics.add.collider(player, monsters, hitMonster, null, this);
+
+            // Input
+            cursors = this.input.keyboard.createCursorKeys();
+            this.input.addPointer(2); // For mobile touch
+
+            // Camera follows player
+            this.cameras.main.startFollow(player);
+            this.cameras.main.setBounds(0, 0, 400, 100000);
+
+            // Spawn boosts and monsters
+            this.time.addEvent({ delay: 5000, callback: spawnBoost, callbackScope: this, loop: true });
+            this.time.addEvent({ delay: 7000, callback: spawnMonster, callbackScope: this, loop: true });
+        }
+
+        function update() {
+            // Player movement
+            if (cursors.left.isDown || (this.input.pointer1.isDown && this.input.pointer1.x < config.width / 2)) {
+                player.setVelocityX(-200);
+            } else if (cursors.right.isDown || (this.input.pointer1.isDown && this.input.pointer1.x > config.width / 2)) {
+                player.setVelocityX(200);
+            } else {
+                player.setVelocityX(0);
+            }
+
+            // Screen wrapping
+            if (player.x < 0) player.x += config.width;
+            if (player.x > config.width) player.x -= config.width;
+
+            // Update camera and platforms
+            if (player.y < cameraY - 100) {
+                cameraY = player.y;
+                updatePlatforms(this);
+            }
+
+            // Game over if player falls below screen
+            if (player.y > this.cameras.main.scrollY + config.height + 50) {
+                this.scene.restart();
+                score = 0;
+            }
+
+            // Update monsters
+            monsters.getChildren().forEach(monster => {
+                if (monster.x < 0 || monster.x > config.width) {
+                    monster.setVelocityX(-monster.body.velocity.x);
+                }
+            });
+        }
+
+        function drawMage(scene, sprite) {
+            const graphics = scene.add.graphics();
+            graphics.fillStyle(0x000000, 1);
+            graphics.fillRect(sprite.x - 15, sprite.y - 20, 30, 40); // Black body
+            graphics.fillStyle(0xff0000, 1);
+            graphics.fillRect(sprite.x - 15, sprite.y - 20, 30, 10); // Red mantle
+            graphics.fillStyle(0xffff00, 1);
+            graphics.fillCircle(sprite.x - 5, sprite.y - 10, 3); // Left eye
+            graphics.fillCircle(sprite.x + 5, sprite.y - 10, 3); // Right eye
+            sprite.setData('graphics', graphics);
+        }
+
+        function createPlatform(scene, x, y) {
+            const isBreakable = y < breakableLevel;
+            const platform = platforms.create(x, y, 'platform').setDisplaySize(60, 10);
+            platform.setData('breakable', isBreakable);
+            platform.refreshBody();
+        }
+
+        function platformCollision(player, platform) {
+            if (player.body.touching.down && platform.getData('breakable')) {
+                platform.destroy();
+            }
+        }
+
+        function collectBoost(player, boost) {
+            boost.destroy();
+            score += 50;
+            scoreText.setText('Score: ' + score);
+            player.setVelocityY(-500); // Boost jump
+        }
+
+        function hitMonster(player, monster) {
+            this.scene.restart();
+            score = 0;
+        }
+
+        function spawnBoost() {
+            const x = Phaser.Math.Between(50, 350);
+            const y = cameraY - 600;
+            const boost = boosts.create(x, y, 'boost').setDisplaySize(20, 20);
+            boost.setVelocityY(50);
+        }
+
+        function spawnMonster() {
+            const x = Phaser.Math.Between(50, 350);
+            const y = cameraY - 600;
+            const monster = monsters.create(x, y, 'monster').setDisplaySize(40, 40);
+            monster.setVelocityX(Phaser.Math.Between(-100, 100));
+            monster.setVelocityY(50);
+        }
+
+        function updatePlatforms(scene) {
+            platforms.getChildren().forEach(platform => {
+                if (platform.y > scene.cameras.main.scrollY + config.height) {
+                    platform.destroy();
+                    createPlatform(scene, Phaser.Math.Between(50, 350), scene.cameras.main.scrollY - 50);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

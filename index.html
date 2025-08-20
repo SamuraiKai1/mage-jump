@@ -88,4 +88,4 @@
     if(player.jetpackTime>0){player.vy=-12.5;player.jetpackTime-=dt*16.67;}else{player.vy+=player.gravity*dt;}
     player.x+=player.vx*dt*3.2;player.y+=player.vy*dt*3.2;
     if(player.x<-player.w)player.x=W;if(player.x>W)player.x=-player.w;
-    const camTarget=Math.min(game.camY,player.y-H*0.4);game.camY+=
+    const camTarget=Math.min(game.camY,player.y-H*0.4
